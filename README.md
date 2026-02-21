@@ -11,6 +11,7 @@ Built on top of [Vosk](https://alphacephei.com/vosk/) (STT) and [Sherpa-ONNX](ht
 - 🔇 **100% Offline** — No internet required after model download
 - 🎤 **Speech-to-Text** — Real-time voice recognition via Vosk
 - 🔊 **Text-to-Speech** — Natural speech synthesis via Sherpa-ONNX VITS
+- ⏹ **Auto-Stop on Silence** — Configurable silence timeout to automatically stop listening
 - 🧩 **Simple API** — Single `VoiceAIManager` facade class
 - 📦 **Lightweight** — Models are NOT bundled; you choose your language/size
 
@@ -42,7 +43,7 @@ In your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.edgeaitechnologies:offline-voice-ai:1.0.0")
+    implementation("com.github.edgeaitechnologies:offline-voice-ai:1.1.0")
 }
 ```
 
@@ -95,16 +96,34 @@ class MainActivity : AppCompatActivity() {
             )
 
             if (ready) {
-                // Start listening (requires RECORD_AUDIO permission)
-                voiceAI.startListening(object : VoiceAIListener {
-                    override fun onSpeechRecognized(text: String) {
-                        Log.d("VoiceAI", "Heard: $text")
-                    }
-                    override fun onListeningStateChanged(isListening: Boolean) {}
-                    override fun onError(error: Throwable) {
-                        Log.e("VoiceAI", "Error", error)
-                    }
-                })
+                // Start listening with auto-stop after 2 s silence
+                voiceAI.startListening(
+                    listener = object : VoiceAIListener {
+                        override fun onSpeechRecognized(text: String) {
+                            // Fires for every recognition event (partial + final)
+                        }
+                        override fun onPartialResult(text: String) {
+                            Log.d("VoiceAI", "Partial: $text")
+                        }
+                        override fun onFinalResult(text: String) {
+                            Log.d("VoiceAI", "Final: $text")
+                        }
+                        override fun onSilenceDetected() {
+                            Log.d("VoiceAI", "User stopped speaking…")
+                        }
+                        override fun onAutoStopped() {
+                            Log.d("VoiceAI", "Auto-stopped after silence")
+                        }
+                        override fun onListeningStateChanged(isListening: Boolean) {}
+                        override fun onError(error: Throwable) {
+                            Log.e("VoiceAI", "Error", error)
+                        }
+                    },
+                    config = SttListeningConfig(
+                        silenceTimeoutMs = 2000L,    // Auto-stop after 2 s silence
+                        autoStopOnSilence = true      // Set to false for manual stop only
+                    )
+                )
 
                 // Speak text with progress callbacks
                 voiceAI.speak(
@@ -146,6 +165,40 @@ ActivityCompat.requestPermissions(
 
 If permission is not granted, `VoiceAIListener.onError()` will receive a `SecurityException`.
 
+## ⏹ STT Auto-Stop on Silence
+
+By default, the STT engine **automatically stops listening** when the user stops speaking. This is controlled via `SttListeningConfig`:
+
+```kotlin
+// Default: auto-stop after 2 seconds of silence
+voiceAI.startListening(listener)
+
+// Custom timeout: 3 seconds
+voiceAI.startListening(listener, SttListeningConfig(silenceTimeoutMs = 3000L))
+
+// Disable auto-stop (manual stop only — original behaviour)
+voiceAI.startListening(listener, SttListeningConfig(autoStopOnSilence = false))
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `silenceTimeoutMs` | `Long` | `2000` | Milliseconds of silence before auto-stop |
+| `autoStopOnSilence` | `Boolean` | `true` | Enable/disable auto-stop |
+
+## 🎤 STT Callbacks
+
+All callbacks are delivered via `VoiceAIListener`. New callbacks have **default no-op implementations**, so existing code continues to work without changes.
+
+| Callback | When it fires |
+|----------|---------------|
+| `onSpeechRecognized(text)` | Every recognition event (partial + final) — **backward compatible** |
+| `onPartialResult(text)` | Real-time partial hypothesis while user is speaking |
+| `onFinalResult(text)` | Confirmed final result for an utterance |
+| `onSilenceDetected()` | Silence first detected after speech (timeout countdown starts) |
+| `onAutoStopped()` | Engine auto-stopped due to silence timeout |
+| `onListeningStateChanged(isListening)` | Microphone started/stopped recording |
+| `onError(error)` | An error occurred during STT |
+
 ## 🔊 TTS Speaking Callbacks
 
 Track the lifecycle of each `speak()` call using `TtsSpeakingListener`:
@@ -178,3 +231,4 @@ The listener is optional — `speak("Hello")` still works as a fire-and-forget c
 ## 📄 License
 
 This project is open source. See the [LICENSE](LICENSE) file for details.
+

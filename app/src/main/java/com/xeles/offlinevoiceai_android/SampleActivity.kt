@@ -11,6 +11,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.xeles.offlinevoiceai.SttListeningConfig
 import com.xeles.offlinevoiceai.VoiceAIListener
 import com.xeles.offlinevoiceai.VoiceAIManager
 import com.xeles.offlinevoiceai.TtsSpeakingListener
@@ -116,9 +117,41 @@ class SampleActivity : AppCompatActivity() {
 
     private val voiceListener = object : VoiceAIListener {
         override fun onSpeechRecognized(text: String) {
+            // Fires for EVERY recognition event (partial + final).
+            // Use onPartialResult / onFinalResult for finer control.
+        }
+
+        override fun onPartialResult(text: String) {
             runOnUiThread {
-                txtResult.append("$text\n")
+                // Show live partial hypothesis (overwrite previous line)
+                val lines = txtResult.text.toString().trimEnd().lines().toMutableList()
+                if (lines.isNotEmpty()) lines.removeLastOrNull()
+                lines.add("💬 $text")
+                txtResult.text = lines.joinToString("\n") + "\n"
                 scrollView.post { scrollView.fullScroll(ScrollView.FOCUS_DOWN) }
+            }
+        }
+
+        override fun onFinalResult(text: String) {
+            runOnUiThread {
+                // Replace the partial line with the confirmed result
+                val lines = txtResult.text.toString().trimEnd().lines().toMutableList()
+                if (lines.isNotEmpty()) lines.removeLastOrNull()
+                lines.add("✅ $text")
+                txtResult.text = lines.joinToString("\n") + "\n"
+                scrollView.post { scrollView.fullScroll(ScrollView.FOCUS_DOWN) }
+            }
+        }
+
+        override fun onSilenceDetected() {
+            runOnUiThread {
+                txtStatus.text = "🤫 Silence detected — waiting…"
+            }
+        }
+
+        override fun onAutoStopped() {
+            runOnUiThread {
+                txtStatus.text = "⏹ Auto-stopped (silence timeout)"
             }
         }
 
@@ -126,7 +159,7 @@ class SampleActivity : AppCompatActivity() {
             runOnUiThread {
                 this@SampleActivity.isListening = isListening
                 btnListen.text = if (isListening) "⏹ Stop Listening" else "🎤 Start Listening"
-                txtStatus.text = if (isListening) "🎤 Listening…" else "✅ Ready"
+                if (isListening) txtStatus.text = "🎤 Listening…"
             }
         }
 
@@ -139,7 +172,8 @@ class SampleActivity : AppCompatActivity() {
 
     private fun startListening() {
         txtResult.text = ""
-        voiceAI.startListening(voiceListener)
+        // Auto-stop after 2 seconds of silence (default config)
+        voiceAI.startListening(voiceListener, SttListeningConfig(silenceTimeoutMs = 2000L))
     }
 
     private fun stopListening() {

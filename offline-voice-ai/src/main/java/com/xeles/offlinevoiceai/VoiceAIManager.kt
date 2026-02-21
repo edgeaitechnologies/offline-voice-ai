@@ -99,11 +99,16 @@ class VoiceAIManager(private val context: Context) {
      * called with a [SecurityException].
      *
      * @param listener Callback to receive recognized text and state changes.
+     * @param config   Optional [SttListeningConfig] to control silence timeout
+     *                 and auto-stop behaviour. Defaults to 2 s silence auto-stop.
      * @throws IllegalStateException if [initialize] has not been called.
      */
-    fun startListening(listener: VoiceAIListener) {
+    fun startListening(
+        listener: VoiceAIListener,
+        config: SttListeningConfig = SttListeningConfig()
+    ) {
         requireInitialized()
-        sttEngine.startListening(listener)
+        sttEngine.startListening(listener, config)
     }
 
     /**
