@@ -88,6 +88,7 @@ internal class TtsEngine {
 
             val ttsConfig = OfflineTtsConfig()
             ttsConfig.model = modelConfig
+            ttsConfig.maxNumSentences = 200
 
             tts = OfflineTts(null, ttsConfig)
             sampleRate = tts!!.sampleRate()
@@ -201,8 +202,12 @@ internal class TtsEngine {
      * Synthesize [text] and play audio **as chunks are generated**,
      * rather than waiting for the full synthesis to complete.
      *
-     * Uses [AudioTrack.MODE_STREAM] and Sherpa-ONNX `generateWithCallback`
-     * for low time-to-first-audio.
+     * The text is split into sentences internally. Each sentence is
+     * synthesized individually using `generateWithCallback`, so the
+     * first sentence starts playing almost immediately while subsequent
+     * sentences are still being generated.
+     *
+     * Uses [AudioTrack.MODE_STREAM] for gapless playback across sentences.
      *
      * @param text      The text string to synthesize.
      * @param speed     Speech speed multiplier (default 1.0).
@@ -229,7 +234,8 @@ internal class TtsEngine {
 
         speakingJob = scope.launch {
             try {
-                // Create AudioTrack in STREAM mode for immediate playback
+                // Create a single AudioTrack in STREAM mode, reused across
+                // all sentences for gapless playback.
                 val minBuf = AudioTrack.getMinBufferSize(
                     sampleRate,
                     AudioFormat.CHANNEL_OUT_MONO,
@@ -259,21 +265,28 @@ internal class TtsEngine {
 
                 withContext(Dispatchers.Main) { callback?.onStreamingStarted() }
 
-                // generateWithCallback delivers audio chunks via the callback.
-                // Return 0 = continue, 1 = stop.
-                // We use AudioChunkCallback (a named class) because D8
-                // desugars lambdas into ExternalSyntheticLambda classes
-                // that break sherpa-onnx JNI reflection.
-                tts!!.generateWithCallback(
-                    text = text,
-                    sid = speakerId,
-                    speed = speed,
-                    callback = AudioChunkCallback(track) { isActive }
-                )
+                // Split text into sentences so each one is synthesized and
+                // played independently — this gives low time-to-first-audio.
+                val sentences = splitIntoSentences(text)
+                val chunkCallback = AudioChunkCallback(track) { isActive }
+
+                for (sentence in sentences) {
+                    if (!isActive) break
+
+                    tts!!.generateWithCallback(
+                        text = sentence,
+                        sid = speakerId,
+                        speed = speed,
+                        callback = chunkCallback
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        callback?.onSentenceSynthesized(sentence)
+                    }
+                }
 
                 // Wait for the AudioTrack buffer to drain
                 if (isActive) {
-                    // Small delay to let the last chunk finish playing
                     kotlinx.coroutines.delay(200)
                 }
 
@@ -283,15 +296,40 @@ internal class TtsEngine {
 
                 Log.d(TAG, "Streamed TTS playback complete for: '${text.take(50)}...'")
 
-                withContext(Dispatchers.Main) {
-                    callback?.onSentenceSynthesized(text)
-                    callback?.onStreamingComplete()
-                }
+                withContext(Dispatchers.Main) { callback?.onStreamingComplete() }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during streamed TTS playback", e)
                 withContext(Dispatchers.Main) { callback?.onStreamingError(e) }
             }
         }
+    }
+
+    /**
+     * Split text into sentences using delimiter characters.
+     * Returns a list of non-empty trimmed sentences.
+     */
+    private fun splitIntoSentences(text: String): List<String> {
+        val sentences = mutableListOf<String>()
+        val buffer = StringBuilder()
+
+        for (ch in text) {
+            buffer.append(ch)
+            if (ch in sentenceDelimiters) {
+                val sentence = buffer.toString().trim()
+                if (sentence.isNotEmpty()) {
+                    sentences.add(sentence)
+                }
+                buffer.clear()
+            }
+        }
+
+        // Flush any remaining text that didn't end with a delimiter
+        val remaining = buffer.toString().trim()
+        if (remaining.isNotEmpty()) {
+            sentences.add(remaining)
+        }
+
+        return sentences
     }
 
     // ─── Session-based streaming (incremental text) ──────────────
