@@ -1,0 +1,92 @@
+﻿Compiled from "Tts.kt"
+public final class com.k2fsa.sherpa.onnx.OfflineTts {
+  public static final com.k2fsa.sherpa.onnx.OfflineTts$Companion Companion;
+    descriptor: Lcom/k2fsa/sherpa/onnx/OfflineTts$Companion;
+  private com.k2fsa.sherpa.onnx.OfflineTtsConfig config;
+    descriptor: Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;
+  private long ptr;
+    descriptor: J
+  public com.k2fsa.sherpa.onnx.OfflineTts(android.content.res.AssetManager, com.k2fsa.sherpa.onnx.OfflineTtsConfig);
+    descriptor: (Landroid/content/res/AssetManager;Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;)V
+
+  public com.k2fsa.sherpa.onnx.OfflineTts(android.content.res.AssetManager, com.k2fsa.sherpa.onnx.OfflineTtsConfig, int, kotlin.jvm.internal.DefaultConstructorMarker);
+    descriptor: (Landroid/content/res/AssetManager;Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;ILkotlin/jvm/internal/DefaultConstructorMarker;)V
+
+  public final com.k2fsa.sherpa.onnx.OfflineTtsConfig getConfig();
+    descriptor: ()Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;
+
+  public final void setConfig(com.k2fsa.sherpa.onnx.OfflineTtsConfig);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;)V
+
+  public final int sampleRate();
+    descriptor: ()I
+
+  public final int numSpeakers();
+    descriptor: ()I
+
+  public final com.k2fsa.sherpa.onnx.GeneratedAudio generate(java.lang.String, int, float);
+    descriptor: (Ljava/lang/String;IF)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  public static com.k2fsa.sherpa.onnx.GeneratedAudio generate$default(com.k2fsa.sherpa.onnx.OfflineTts, java.lang.String, int, float, int, java.lang.Object);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTts;Ljava/lang/String;IFILjava/lang/Object;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  public final com.k2fsa.sherpa.onnx.GeneratedAudio generateWithCallback(java.lang.String, int, float, kotlin.jvm.functions.Function1<? super float[], java.lang.Integer>);
+    descriptor: (Ljava/lang/String;IFLkotlin/jvm/functions/Function1;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  public static com.k2fsa.sherpa.onnx.GeneratedAudio generateWithCallback$default(com.k2fsa.sherpa.onnx.OfflineTts, java.lang.String, int, float, kotlin.jvm.functions.Function1, int, java.lang.Object);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTts;Ljava/lang/String;IFLkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  public final com.k2fsa.sherpa.onnx.GeneratedAudio generateWithConfig(java.lang.String, com.k2fsa.sherpa.onnx.GenerationConfig);
+    descriptor: (Ljava/lang/String;Lcom/k2fsa/sherpa/onnx/GenerationConfig;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  public final com.k2fsa.sherpa.onnx.GeneratedAudio generateWithConfigAndCallback(java.lang.String, com.k2fsa.sherpa.onnx.GenerationConfig, kotlin.jvm.functions.Function1<? super float[], java.lang.Integer>);
+    descriptor: (Ljava/lang/String;Lcom/k2fsa/sherpa/onnx/GenerationConfig;Lkotlin/jvm/functions/Function1;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  public final void allocate(android.content.res.AssetManager);
+    descriptor: (Landroid/content/res/AssetManager;)V
+
+  public static void allocate$default(com.k2fsa.sherpa.onnx.OfflineTts, android.content.res.AssetManager, int, java.lang.Object);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTts;Landroid/content/res/AssetManager;ILjava/lang/Object;)V
+
+  public final void free();
+    descriptor: ()V
+
+  protected final void finalize();
+    descriptor: ()V
+
+  public final void release();
+    descriptor: ()V
+
+  private final native long newFromAsset(android.content.res.AssetManager, com.k2fsa.sherpa.onnx.OfflineTtsConfig);
+    descriptor: (Landroid/content/res/AssetManager;Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;)J
+
+  private final native long newFromFile(com.k2fsa.sherpa.onnx.OfflineTtsConfig);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTtsConfig;)J
+
+  private final native void delete(long);
+    descriptor: (J)V
+
+  private final native int getSampleRate(long);
+    descriptor: (J)I
+
+  private final native int getNumSpeakers(long);
+    descriptor: (J)I
+
+  private final native com.k2fsa.sherpa.onnx.GeneratedAudio generateImpl(long, java.lang.String, int, float);
+    descriptor: (JLjava/lang/String;IF)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  static com.k2fsa.sherpa.onnx.GeneratedAudio generateImpl$default(com.k2fsa.sherpa.onnx.OfflineTts, long, java.lang.String, int, float, int, java.lang.Object);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTts;JLjava/lang/String;IFILjava/lang/Object;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  private final native com.k2fsa.sherpa.onnx.GeneratedAudio generateWithCallbackImpl(long, java.lang.String, int, float, kotlin.jvm.functions.Function1<? super float[], java.lang.Integer>);
+    descriptor: (JLjava/lang/String;IFLkotlin/jvm/functions/Function1;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  static com.k2fsa.sherpa.onnx.GeneratedAudio generateWithCallbackImpl$default(com.k2fsa.sherpa.onnx.OfflineTts, long, java.lang.String, int, float, kotlin.jvm.functions.Function1, int, java.lang.Object);
+    descriptor: (Lcom/k2fsa/sherpa/onnx/OfflineTts;JLjava/lang/String;IFLkotlin/jvm/functions/Function1;ILjava/lang/Object;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  private final native com.k2fsa.sherpa.onnx.GeneratedAudio generateWithConfigImpl(long, java.lang.String, com.k2fsa.sherpa.onnx.GenerationConfig, kotlin.jvm.functions.Function1<? super float[], java.lang.Integer>);
+    descriptor: (JLjava/lang/String;Lcom/k2fsa/sherpa/onnx/GenerationConfig;Lkotlin/jvm/functions/Function1;)Lcom/k2fsa/sherpa/onnx/GeneratedAudio;
+
+  static {};
+    descriptor: ()V
+}
