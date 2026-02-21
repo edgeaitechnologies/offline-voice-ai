@@ -14,7 +14,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.vosk.Model
 import org.vosk.Recognizer
-import kotlin.math.sqrt
+
 
 /**
  * Wrapper around the Vosk speech recognition engine.
@@ -23,10 +23,10 @@ import kotlin.math.sqrt
  * and feeds it to the Vosk [Recognizer]. Recognized text is delivered
  * through [VoiceAIListener] callbacks.
  *
- * Supports **silence-based auto-stop**: when the RMS amplitude of the
- * incoming audio stays below [SILENCE_RMS_THRESHOLD] for longer than
- * [SttListeningConfig.silenceTimeoutMs], the engine automatically stops
- * listening and fires [VoiceAIListener.onAutoStopped].
+ * Supports **silence-based auto-stop**: when the Vosk recognizer returns
+ * no speech for longer than [SttListeningConfig.silenceTimeoutMs], the
+ * engine automatically stops listening and fires
+ * [VoiceAIListener.onAutoStopped].
  */
 internal class SttEngine {
 
@@ -36,12 +36,6 @@ internal class SttEngine {
         private const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
         private const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
 
-        /**
-         * RMS amplitude threshold below which audio is considered "silence".
-         * 16-bit PCM range is ±32 768; a value of ~500 filters out ambient
-         * background noise on most devices.
-         */
-        private const val SILENCE_RMS_THRESHOLD = 500.0
     }
 
     private var model: Model? = null
@@ -118,8 +112,9 @@ internal class SttEngine {
         recordingJob = scope.launch {
             val buffer = ShortArray(bufferSize / 2)
 
-            // Silence tracking state
-            var silenceStartMs: Long = 0L
+            // Silence tracking — based on Vosk recognition output, not raw amplitude.
+            // This is device-independent because Vosk has its own internal VAD.
+            var lastSpeechTimeMs: Long = 0L          // last time Vosk returned non-empty text
             var silenceCallbackFired = false
             var hasReceivedSpeech = false
 
@@ -128,50 +123,18 @@ internal class SttEngine {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: break
                     if (read <= 0) continue
 
-                    // ── Silence detection ────────────────────────────
-                    if (config.autoStopOnSilence) {
-                        val rms = computeRms(buffer, read)
-                        val now = System.currentTimeMillis()
-
-                        if (rms < SILENCE_RMS_THRESHOLD) {
-                            if (silenceStartMs == 0L) {
-                                silenceStartMs = now
-                            }
-                            // Only fire silence callback after we've seen real speech
-                            if (!silenceCallbackFired && hasReceivedSpeech) {
-                                silenceCallbackFired = true
-                                listener.onSilenceDetected()
-                            }
-                            // Check if silence has exceeded the timeout
-                            if (hasReceivedSpeech &&
-                                (now - silenceStartMs) >= config.silenceTimeoutMs
-                            ) {
-                                Log.d(TAG, "Silence timeout reached — auto-stopping")
-                                // Grab any pending final result before stopping
-                                val finalText = parseVoskResult(recognizer!!.finalResult)
-                                if (finalText.isNotBlank()) {
-                                    listener.onSpeechRecognized(finalText)
-                                    listener.onFinalResult(finalText)
-                                }
-                                listener.onAutoStopped()
-                                break // exits the while-loop → finally block cleans up
-                            }
-                        } else {
-                            // Audio above threshold — reset silence tracking
-                            silenceStartMs = 0L
-                            silenceCallbackFired = false
-                            hasReceivedSpeech = true
-                        }
-                    }
-
                     // ── Feed audio to Vosk ───────────────────────────
                     val bytes = shortsToBytes(buffer, read)
                     val rec = recognizer!!
+                    val now = System.currentTimeMillis()
 
                     if (rec.acceptWaveForm(bytes, bytes.size)) {
                         // Final result for this utterance
                         val result = parseVoskResult(rec.result)
                         if (result.isNotBlank()) {
+                            hasReceivedSpeech = true
+                            lastSpeechTimeMs = now
+                            silenceCallbackFired = false
                             listener.onSpeechRecognized(result)
                             listener.onFinalResult(result)
                         }
@@ -179,8 +142,34 @@ internal class SttEngine {
                         // Partial result
                         val partial = parseVoskPartial(rec.partialResult)
                         if (partial.isNotBlank()) {
+                            hasReceivedSpeech = true
+                            lastSpeechTimeMs = now
+                            silenceCallbackFired = false
                             listener.onSpeechRecognized(partial)
                             listener.onPartialResult(partial)
+                        }
+                    }
+
+                    // ── Silence detection (after Vosk processing) ────
+                    if (config.autoStopOnSilence && hasReceivedSpeech && lastSpeechTimeMs > 0L) {
+                        val silenceDuration = now - lastSpeechTimeMs
+
+                        if (!silenceCallbackFired && silenceDuration >= 500L) {
+                            // Fire silence detected once, early (after 500 ms)
+                            silenceCallbackFired = true
+                            listener.onSilenceDetected()
+                        }
+
+                        if (silenceDuration >= config.silenceTimeoutMs) {
+                            Log.d(TAG, "Silence timeout reached (${silenceDuration}ms) — auto-stopping")
+                            // Grab any pending final result before stopping
+                            val finalText = parseVoskResult(rec.finalResult)
+                            if (finalText.isNotBlank()) {
+                                listener.onSpeechRecognized(finalText)
+                                listener.onFinalResult(finalText)
+                            }
+                            listener.onAutoStopped()
+                            break // exits while-loop → finally block cleans up
                         }
                     }
                 }
@@ -226,19 +215,6 @@ internal class SttEngine {
             audioRecord?.release()
         } catch (_: Exception) {}
         audioRecord = null
-    }
-
-    /**
-     * Compute Root Mean Square (RMS) amplitude for the audio buffer.
-     * Higher values mean louder audio.
-     */
-    private fun computeRms(buffer: ShortArray, readCount: Int): Double {
-        var sum = 0.0
-        for (i in 0 until readCount) {
-            val sample = buffer[i].toDouble()
-            sum += sample * sample
-        }
-        return sqrt(sum / readCount)
     }
 
     /**
