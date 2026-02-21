@@ -45,6 +45,26 @@ internal class TtsEngine {
     /** Sentence-ending characters used to split streamed text. */
     private val sentenceDelimiters = charArrayOf('.', '!', '?', '\n')
 
+    /**
+     * Named callback class for [OfflineTts.generateWithCallback].
+     *
+     * D8 (the Android DEX compiler) desugars all lambdas and anonymous
+     * functions into `ExternalSyntheticLambda` classes whose `invoke()`
+     * method is invisible to JNI reflection.  sherpa-onnx's native code
+     * calls `invoke([F)Ljava/lang/Integer;` via JNI, so we **must** use
+     * a named class that D8 will not touch.
+     */
+    private class AudioChunkCallback(
+        private val track: AudioTrack,
+        private val activeCheck: () -> Boolean
+    ) : (FloatArray) -> Int {
+        override fun invoke(samples: FloatArray): Int {
+            if (!activeCheck()) return 1
+            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+            return 0
+        }
+    }
+
     val isSpeaking: Boolean
         get() = speakingJob?.isActive == true
 
@@ -239,17 +259,17 @@ internal class TtsEngine {
 
                 withContext(Dispatchers.Main) { callback?.onStreamingStarted() }
 
-                // generateWithCallback delivers audio chunks via the lambda.
+                // generateWithCallback delivers audio chunks via the callback.
                 // Return 0 = continue, 1 = stop.
+                // We use AudioChunkCallback (a named class) because D8
+                // desugars lambdas into ExternalSyntheticLambda classes
+                // that break sherpa-onnx JNI reflection.
                 tts!!.generateWithCallback(
                     text = text,
                     sid = speakerId,
-                    speed = speed
-                ) { samples ->
-                    if (!isActive) return@generateWithCallback 1
-                    track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-                    0 // continue
-                }
+                    speed = speed,
+                    callback = AudioChunkCallback(track) { isActive }
+                )
 
                 // Wait for the AudioTrack buffer to drain
                 if (isActive) {
@@ -423,15 +443,13 @@ internal class TtsEngine {
         audioTrack = track
         track.play()
 
+        // Named class callback — see AudioChunkCallback docs above.
         tts!!.generateWithCallback(
             text = sentence,
             sid = speakerId,
-            speed = speed
-        ) { samples ->
-            if (speakingJob?.isActive != true) return@generateWithCallback 1
-            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
-            0
-        }
+            speed = speed,
+            callback = AudioChunkCallback(track) { speakingJob?.isActive == true }
+        )
 
         // Small delay to let the last chunk finish playing
         kotlinx.coroutines.delay(200)

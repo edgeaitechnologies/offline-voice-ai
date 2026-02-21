@@ -211,7 +211,7 @@ class SampleActivity : AppCompatActivity() {
         // Feed tokens with a delay to simulate LLM typing speed
         CoroutineScope(Dispatchers.IO).launch {
             for (token in tokens) {
-                delay(80) // ~80ms per token ≈ fast LLM speed
+                delay(0) // ~80ms per token ≈ fast LLM speed
                 voiceAI.streamText(token)
 
                 runOnUiThread {
