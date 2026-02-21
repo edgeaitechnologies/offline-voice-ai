@@ -1,0 +1,9 @@
+com.xeles.offlinevoiceai.offline-voice-ai-jna-5.18.1-0 C:\Users\cpxav\.gradle\caches\8.13\transforms\11d4342b81a74dd55bc57d2bb6fc4742\transformed\jna-5.18.1\res
+com.xeles.offlinevoiceai.offline-voice-ai-pngs-1 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\build\generated\res\pngs\release
+com.xeles.offlinevoiceai.offline-voice-ai-resValues-2 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\build\generated\res\resValues\release
+com.xeles.offlinevoiceai.offline-voice-ai-updated_navigation_xml-3 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\build\generated\updated_navigation_xml\release
+com.xeles.offlinevoiceai.offline-voice-ai-mergeReleaseResources-4 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\build\intermediates\incremental\release\mergeReleaseResources\merged.dir
+com.xeles.offlinevoiceai.offline-voice-ai-mergeReleaseResources-5 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\build\intermediates\incremental\release\mergeReleaseResources\stripped.dir
+com.xeles.offlinevoiceai.offline-voice-ai-release-6 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\build\intermediates\merged_res\release\mergeReleaseResources
+com.xeles.offlinevoiceai.offline-voice-ai-main-7 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\src\main\res
+com.xeles.offlinevoiceai.offline-voice-ai-release-8 C:\Users\cpxav\Desktop\AI\Exercise\AIChat\OfflineVoiceAIAndroid\offline-voice-ai\src\release\res
