@@ -12,11 +12,13 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.xeles.offlinevoiceai.SttListeningConfig
+import com.xeles.offlinevoiceai.TtsSpeakingListener
+import com.xeles.offlinevoiceai.TtsStreamingCallback
 import com.xeles.offlinevoiceai.VoiceAIListener
 import com.xeles.offlinevoiceai.VoiceAIManager
-import com.xeles.offlinevoiceai.TtsSpeakingListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -34,12 +36,28 @@ class SampleActivity : AppCompatActivity() {
         // ── Change these to match YOUR model folder names in assets/ ──
         private const val STT_MODEL_NAME = "vosk-model-small-en-us-0.15"
         private const val TTS_MODEL_NAME = "vits-piper-en_US-amy-low"
+
+        /**
+         * Simulated LLM response — a medium-large text that will be
+         * fed token-by-token to [VoiceAIManager.streamText] to mimic
+         * how a real language model streams its output.
+         */
+        private const val SIMULATED_LLM_TEXT =
+            "Artificial intelligence is transforming the world around us. " +
+            "From healthcare to education, its impact is profound. " +
+            "Machine learning algorithms can now detect diseases earlier than ever before! " +
+            "Self-driving cars are becoming a reality on our roads. " +
+            "Natural language processing enables computers to understand human speech. " +
+            "The future of AI holds endless possibilities for humanity."
     }
 
     private lateinit var voiceAI: VoiceAIManager
 
     private lateinit var btnListen: Button
     private lateinit var btnSpeak: Button
+    private lateinit var btnSpeakStreamed: Button
+    private lateinit var btnStreamSimulate: Button
+    private lateinit var btnStopSpeaking: Button
     private lateinit var txtResult: TextView
     private lateinit var editSpeak: EditText
     private lateinit var txtStatus: TextView
@@ -53,6 +71,9 @@ class SampleActivity : AppCompatActivity() {
 
         btnListen = findViewById(R.id.btn_listen)
         btnSpeak = findViewById(R.id.btn_speak)
+        btnSpeakStreamed = findViewById(R.id.btn_speak_streamed)
+        btnStreamSimulate = findViewById(R.id.btn_stream_simulate)
+        btnStopSpeaking = findViewById(R.id.btn_stop_speaking)
         txtResult = findViewById(R.id.txt_result)
         editSpeak = findViewById(R.id.edit_speak)
         txtStatus = findViewById(R.id.txt_status)
@@ -61,8 +82,8 @@ class SampleActivity : AppCompatActivity() {
         voiceAI = VoiceAIManager(applicationContext)
 
         // Disable buttons until initialization completes
+        setTtsButtonsEnabled(false)
         btnListen.isEnabled = false
-        btnSpeak.isEnabled = false
         txtStatus.text = "Initializing models…"
 
         // Initialize in a background coroutine
@@ -71,7 +92,7 @@ class SampleActivity : AppCompatActivity() {
             if (success) {
                 txtStatus.text = "✅ Ready"
                 btnListen.isEnabled = true
-                btnSpeak.isEnabled = true
+                setTtsButtonsEnabled(true)
             } else {
                 txtStatus.text = "❌ Initialization failed — check model assets"
             }
@@ -90,17 +111,17 @@ class SampleActivity : AppCompatActivity() {
             }
         }
 
-        // ── TTS Button ───────────────────────────────────────────────
+        // ── TTS: Classic Speak ───────────────────────────────────────
         btnSpeak.setOnClickListener {
             val text = editSpeak.text.toString().trim()
             if (text.isNotEmpty()) {
                 voiceAI.speak(text, listener = object : TtsSpeakingListener {
                     override fun onStart(utteranceText: String) {
-                        txtStatus.text = "🔊 Speaking…"
+                        txtStatus.text = "🔊 Speaking (classic)…"
                     }
 
                     override fun onDone(utteranceText: String) {
-                        txtStatus.text = "✅ Done speaking"
+                        txtStatus.text = "✅ Done speaking (classic)"
                     }
 
                     override fun onError(utteranceText: String, error: Throwable) {
@@ -110,6 +131,96 @@ class SampleActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Enter text to speak", Toast.LENGTH_SHORT).show()
             }
+        }
+
+        // ── TTS: Speak Streamed (full text, chunked audio) ───────────
+        btnSpeakStreamed.setOnClickListener {
+            val text = editSpeak.text.toString().trim()
+            if (text.isNotEmpty()) {
+                voiceAI.speakStreamed(text, callback = object : TtsStreamingCallback {
+                    override fun onStreamingStarted() {
+                        txtStatus.text = "⚡ Streaming audio…"
+                    }
+
+                    override fun onSentenceSynthesized(sentence: String) {
+                        txtStatus.text = "⚡ Played: ${sentence.take(40)}…"
+                    }
+
+                    override fun onStreamingComplete() {
+                        txtStatus.text = "✅ Done (streamed)"
+                    }
+
+                    override fun onStreamingError(error: Throwable) {
+                        txtStatus.text = "⚠️ Stream error: ${error.message}"
+                    }
+                })
+            } else {
+                Toast.makeText(this, "Enter text to speak", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        // ── TTS: Simulate LLM Streaming ──────────────────────────────
+        btnStreamSimulate.setOnClickListener {
+            simulateLlmStream()
+        }
+
+        // ── Stop Speaking ────────────────────────────────────────────
+        btnStopSpeaking.setOnClickListener {
+            voiceAI.stopSpeaking()
+            txtStatus.text = "⏹ Stopped"
+        }
+    }
+
+    // ─── Simulate LLM Token-by-Token Streaming ──────────────────────
+
+    private fun simulateLlmStream() {
+        txtStatus.text = "🤖 Starting LLM simulation…"
+        txtResult.text = ""
+
+        // Split text into small tokens (simulating LLM output)
+        val tokens = SIMULATED_LLM_TEXT.split(" ").map { "$it " }
+
+        voiceAI.beginStreaming(callback = object : TtsStreamingCallback {
+            override fun onStreamingStarted() {
+                txtStatus.text = "🤖 Streaming session opened"
+            }
+
+            override fun onSentenceSynthesized(sentence: String) {
+                runOnUiThread {
+                    txtResult.append("✅ $sentence\n")
+                    scrollView.post { scrollView.fullScroll(ScrollView.FOCUS_DOWN) }
+                    txtStatus.text = "🔊 Sentence played"
+                }
+            }
+
+            override fun onStreamingComplete() {
+                runOnUiThread {
+                    txtResult.append("\n🏁 All sentences done!\n")
+                    txtStatus.text = "✅ LLM stream complete"
+                    scrollView.post { scrollView.fullScroll(ScrollView.FOCUS_DOWN) }
+                }
+            }
+
+            override fun onStreamingError(error: Throwable) {
+                runOnUiThread {
+                    txtStatus.text = "⚠️ Stream error: ${error.message}"
+                }
+            }
+        })
+
+        // Feed tokens with a delay to simulate LLM typing speed
+        CoroutineScope(Dispatchers.IO).launch {
+            for (token in tokens) {
+                delay(80) // ~80ms per token ≈ fast LLM speed
+                voiceAI.streamText(token)
+
+                runOnUiThread {
+                    // Show the token being fed in the status
+                    txtStatus.text = "🤖 Feeding: …${token.trim()}"
+                }
+            }
+            delay(100)
+            voiceAI.endStreaming()
         }
     }
 
@@ -178,6 +289,15 @@ class SampleActivity : AppCompatActivity() {
 
     private fun stopListening() {
         voiceAI.stopListening()
+    }
+
+    // ─── Helpers ─────────────────────────────────────────────────────
+
+    private fun setTtsButtonsEnabled(enabled: Boolean) {
+        btnSpeak.isEnabled = enabled
+        btnSpeakStreamed.isEnabled = enabled
+        btnStreamSimulate.isEnabled = enabled
+        btnStopSpeaking.isEnabled = enabled
     }
 
     // ─── Permissions ─────────────────────────────────────────────────

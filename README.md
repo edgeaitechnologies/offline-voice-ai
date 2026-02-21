@@ -11,6 +11,8 @@ Built on top of [Vosk](https://alphacephei.com/vosk/) (STT) and [Sherpa-ONNX](ht
 - 🔇 **100% Offline** — No internet required after model download
 - 🎤 **Speech-to-Text** — Real-time voice recognition via Vosk
 - 🔊 **Text-to-Speech** — Natural speech synthesis via Sherpa-ONNX VITS
+- ⚡ **Streamed TTS** — Low-latency audio playback with chunked synthesis
+- 🤖 **Streaming TTS** — Feed text token-by-token (perfect for LLM responses)
 - ⏹ **Auto-Stop on Silence** — Configurable silence timeout to automatically stop listening
 - 🧩 **Simple API** — Single `VoiceAIManager` facade class
 - 📦 **Lightweight** — Models are NOT bundled; you choose your language/size
@@ -213,6 +215,76 @@ All callbacks are delivered on the **main thread**, so you can update UI directl
 
 The listener is optional — `speak("Hello")` still works as a fire-and-forget call.
 
+## ⚡ Streamed TTS — Low-Latency Playback
+
+`speakStreamed()` accepts the full text upfront but starts playing audio **immediately** as chunks are generated, rather than waiting for complete synthesis. This significantly reduces time-to-first-audio.
+
+```kotlin
+voiceAI.speakStreamed(
+    text = "This will start playing much faster than speak()!",
+    callback = object : TtsStreamingCallback {
+        override fun onStreamingStarted() {
+            Log.d("VoiceAI", "Streaming started")
+        }
+        override fun onSentenceSynthesized(sentence: String) {
+            Log.d("VoiceAI", "Played: $sentence")
+        }
+        override fun onStreamingComplete() {
+            Log.d("VoiceAI", "Streaming complete")
+        }
+        override fun onStreamingError(error: Throwable) {
+            Log.e("VoiceAI", "Stream error", error)
+        }
+    }
+)
+```
+
+## 🤖 Streaming TTS — Incremental Text (LLM Integration)
+
+Feed text **token-by-token** using a session-based API. Perfect for streaming LLM responses where you receive text gradually.
+
+Text is buffered internally and split at sentence boundaries (`. ! ? \n`). Each complete sentence is synthesized and played sequentially.
+
+```kotlin
+// 1. Open a streaming session
+voiceAI.beginStreaming(callback = object : TtsStreamingCallback {
+    override fun onStreamingStarted() { /* session opened */ }
+    override fun onSentenceSynthesized(sentence: String) {
+        Log.d("VoiceAI", "Spoke: $sentence")
+    }
+    override fun onStreamingComplete() { /* all done */ }
+    override fun onStreamingError(error: Throwable) { /* handle error */ }
+})
+
+// 2. Feed tokens as they arrive from your LLM
+voiceAI.streamText("Hello ")
+voiceAI.streamText("world. ")      // ← "Hello world." detected → synthesized & played
+voiceAI.streamText("How are ")
+voiceAI.streamText("you?")          // ← "How are you?" detected → queued for playback
+
+// 3. Signal no more text
+voiceAI.endStreaming()               // flushes remaining text, onStreamingComplete fires
+```
+
+### TTS Mode Comparison
+
+| Method | Text Input | Audio Output | Best For |
+|--------|-----------|--------------|----------|
+| `speak(text)` | Full text at once | Waits for full synthesis | Simple one-shot TTS |
+| `speakStreamed(text)` | Full text at once | Plays as chunks arrive | Low-latency TTS |
+| `beginStreaming()` → `streamText()` → `endStreaming()` | Token-by-token | Sentence-by-sentence | LLM streaming responses |
+
+### TtsStreamingCallback
+
+| Callback | When it fires |
+|----------|---------------|
+| `onStreamingStarted()` | Streaming pipeline opened |
+| `onSentenceSynthesized(sentence)` | A sentence was synthesized and played |
+| `onStreamingComplete()` | All text fully spoken |
+| `onStreamingError(error)` | Error during streaming |
+
+> **Note**: `stopSpeaking()` works for all TTS modes — it cancels `speak()`, `speakStreamed()`, or an active streaming session.
+
 ## 🏗️ Architecture
 
 ```
@@ -220,6 +292,8 @@ The listener is optional — `speak("Hello")` still works as a fire-and-forget c
 │           Your Application                 │
 ├────────────────────────────────────────────┤
 │       VoiceAIManager (Facade)              │
+│  speak · speakStreamed · beginStreaming     │
+│  streamText · endStreaming · stopSpeaking   │
 ├──────────────────┬─────────────────────────┤
 │  SttEngine       │  TtsEngine              │
 │  (Vosk Wrapper)  │  (Sherpa-ONNX Wrapper)  │
@@ -231,4 +305,5 @@ The listener is optional — `speak("Hello")` still works as a fire-and-forget c
 ## 📄 License
 
 This project is open source. See the [LICENSE](LICENSE) file for details.
+
 

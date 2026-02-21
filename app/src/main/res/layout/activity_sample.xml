@@ -93,10 +93,50 @@
             android:id="@+id/btn_speak"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:text="🔊 Speak"
+            android:text="🔊 Speak (Classic)"
             android:textSize="16sp"
             android:backgroundTint="#03DAC5"
             android:textColor="#000000"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btn_speak_streamed"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="⚡ Speak Streamed"
+            android:textSize="16sp"
+            android:backgroundTint="#018786"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Streaming TTS Section -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Streaming TTS (Simulated LLM)"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#CF6679"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_stream_simulate"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="🤖 Simulate LLM Stream"
+            android:textSize="16sp"
+            android:backgroundTint="#CF6679"
+            android:textColor="#000000"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btn_stop_speaking"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="⏹ Stop Speaking"
+            android:textSize="16sp"
+            android:backgroundTint="#FF5252"
+            android:textColor="#FFFFFF"
             android:layout_marginBottom="24dp" />
 
     </LinearLayout>
