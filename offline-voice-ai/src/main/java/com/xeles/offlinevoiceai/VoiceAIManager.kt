@@ -141,7 +141,81 @@ class VoiceAIManager(private val context: Context) {
     }
 
     /**
+     * Synthesize [text] and play audio **as chunks are generated**,
+     * providing low time-to-first-audio compared to [speak].
+     *
+     * The full text is provided upfront, but playback begins immediately
+     * as the engine produces audio chunks.
+     *
+     * @param text      The text to speak.
+     * @param speed     Speech speed multiplier (default `1.0`).
+     * @param speakerId Speaker ID for multi-speaker models (default `0`).
+     * @param callback  Optional [TtsStreamingCallback] to receive streaming
+     *                  progress events. Callbacks are delivered on the **main thread**.
+     */
+    fun speakStreamed(
+        text: String,
+        speed: Float = 1.0f,
+        speakerId: Int = 0,
+        callback: TtsStreamingCallback? = null
+    ) {
+        requireInitialized()
+        ttsEngine.speakStreamed(text, speed, speakerId, callback)
+    }
+
+    /**
+     * Open a streaming session for feeding text **incrementally**.
+     *
+     * After calling this, use [streamText] to feed text chunks (e.g. tokens
+     * from an LLM) and [endStreaming] to signal that all text has been sent.
+     *
+     * Internally, text is buffered and split at sentence boundaries
+     * (`.` `!` `?` `\n`). Each complete sentence is synthesized and played
+     * sequentially.
+     *
+     * @param speed     Speech speed multiplier (default `1.0`).
+     * @param speakerId Speaker ID for multi-speaker models (default `0`).
+     * @param callback  Optional [TtsStreamingCallback] to receive streaming
+     *                  progress events. Callbacks are delivered on the **main thread**.
+     */
+    fun beginStreaming(
+        speed: Float = 1.0f,
+        speakerId: Int = 0,
+        callback: TtsStreamingCallback? = null
+    ) {
+        requireInitialized()
+        ttsEngine.beginStreaming(speed, speakerId, callback)
+    }
+
+    /**
+     * Feed a chunk of text into the active streaming session.
+     *
+     * Text is buffered until a sentence-ending delimiter is detected,
+     * at which point the complete sentence is synthesized and played.
+     *
+     * @param chunk A text fragment (may be a single token or several words).
+     * @throws IllegalStateException if [beginStreaming] has not been called.
+     */
+    fun streamText(chunk: String) {
+        requireInitialized()
+        ttsEngine.streamText(chunk)
+    }
+
+    /**
+     * Signal that no more text will be sent to the current streaming session.
+     *
+     * Any remaining buffered text is flushed, synthesized, and played.
+     * [TtsStreamingCallback.onStreamingComplete] will fire after the last
+     * sentence finishes playing.
+     */
+    fun endStreaming() {
+        ttsEngine.endStreaming()
+    }
+
+    /**
      * Stop any active TTS playback.
+     *
+     * Works for all TTS modes: [speak], [speakStreamed], and streaming sessions.
      */
     fun stopSpeaking() {
         ttsEngine.stopSpeaking()

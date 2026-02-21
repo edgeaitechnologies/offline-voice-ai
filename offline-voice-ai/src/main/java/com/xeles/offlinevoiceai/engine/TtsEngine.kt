@@ -9,9 +9,11 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import com.xeles.offlinevoiceai.TtsSpeakingListener
+import com.xeles.offlinevoiceai.TtsStreamingCallback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,6 +34,16 @@ internal class TtsEngine {
     private var speakingJob: Job? = null
     private var sampleRate: Int = 22050
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    // ── Streaming session state ─────────────────────────────────────
+    private var sentenceChannel: Channel<String>? = null
+    private val textBuffer = StringBuilder()
+    private var streamingCallback: TtsStreamingCallback? = null
+    private var streamingSpeed: Float = 1.0f
+    private var streamingSpeakerId: Int = 0
+
+    /** Sentence-ending characters used to split streamed text. */
+    private val sentenceDelimiters = charArrayOf('.', '!', '?', '\n')
 
     val isSpeaking: Boolean
         get() = speakingJob?.isActive == true
@@ -163,12 +175,286 @@ internal class TtsEngine {
         }
     }
 
+    // ─── Streamed speak (full text, chunked audio) ────────────────
+
     /**
-     * Stop any active TTS playback.
+     * Synthesize [text] and play audio **as chunks are generated**,
+     * rather than waiting for the full synthesis to complete.
+     *
+     * Uses [AudioTrack.MODE_STREAM] and Sherpa-ONNX `generateWithCallback`
+     * for low time-to-first-audio.
+     *
+     * @param text      The text string to synthesize.
+     * @param speed     Speech speed multiplier (default 1.0).
+     * @param speakerId Speaker ID for multi-speaker models (default 0).
+     * @param callback  Optional [TtsStreamingCallback] to receive progress events.
+     */
+    fun speakStreamed(
+        text: String,
+        speed: Float = 1.0f,
+        speakerId: Int = 0,
+        callback: TtsStreamingCallback? = null
+    ) {
+        if (tts == null) {
+            Log.e(TAG, "TTS engine not initialized. Call initialize() first.")
+            callback?.let {
+                CoroutineScope(Dispatchers.Main).launch {
+                    it.onStreamingError(IllegalStateException("TTS engine not initialized. Call initialize() first."))
+                }
+            }
+            return
+        }
+
+        stopSpeaking()
+
+        speakingJob = scope.launch {
+            try {
+                // Create AudioTrack in STREAM mode for immediate playback
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_FLOAT
+                )
+
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBuf * 2)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                audioTrack = track
+                track.play()
+
+                withContext(Dispatchers.Main) { callback?.onStreamingStarted() }
+
+                // generateWithCallback delivers audio chunks via the lambda.
+                // Return 0 = continue, 1 = stop.
+                tts!!.generateWithCallback(
+                    text = text,
+                    sid = speakerId,
+                    speed = speed
+                ) { samples ->
+                    if (!isActive) return@generateWithCallback 1
+                    track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                    0 // continue
+                }
+
+                // Wait for the AudioTrack buffer to drain
+                if (isActive) {
+                    // Small delay to let the last chunk finish playing
+                    kotlinx.coroutines.delay(200)
+                }
+
+                track.stop()
+                track.release()
+                audioTrack = null
+
+                Log.d(TAG, "Streamed TTS playback complete for: '${text.take(50)}...'")
+
+                withContext(Dispatchers.Main) {
+                    callback?.onSentenceSynthesized(text)
+                    callback?.onStreamingComplete()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error during streamed TTS playback", e)
+                withContext(Dispatchers.Main) { callback?.onStreamingError(e) }
+            }
+        }
+    }
+
+    // ─── Session-based streaming (incremental text) ──────────────
+
+    /**
+     * Open a streaming session for feeding text incrementally.
+     *
+     * After calling this, use [streamText] to feed text chunks
+     * (e.g. tokens from an LLM) and [endStreaming] to signal completion.
+     *
+     * Internally, text is buffered and sentences are detected by
+     * delimiter characters (`.` `!` `?` `\n`). Each complete sentence
+     * is synthesized and played sequentially.
+     *
+     * @param speed     Speech speed multiplier (default 1.0).
+     * @param speakerId Speaker ID for multi-speaker models (default 0).
+     * @param callback  Optional [TtsStreamingCallback] to receive progress events.
+     */
+    fun beginStreaming(
+        speed: Float = 1.0f,
+        speakerId: Int = 0,
+        callback: TtsStreamingCallback? = null
+    ) {
+        if (tts == null) {
+            Log.e(TAG, "TTS engine not initialized. Call initialize() first.")
+            callback?.let {
+                CoroutineScope(Dispatchers.Main).launch {
+                    it.onStreamingError(IllegalStateException("TTS engine not initialized. Call initialize() first."))
+                }
+            }
+            return
+        }
+
+        stopSpeaking()
+
+        streamingCallback = callback
+        streamingSpeed = speed
+        streamingSpeakerId = speakerId
+        textBuffer.clear()
+
+        // Unbounded channel — sentences are produced by feedText, consumed by the job
+        val channel = Channel<String>(Channel.UNLIMITED)
+        sentenceChannel = channel
+
+        speakingJob = scope.launch {
+            try {
+                withContext(Dispatchers.Main) { callback?.onStreamingStarted() }
+
+                for (sentence in channel) {
+                    if (!isActive) break
+                    synthesizeAndPlay(sentence, speed, speakerId, callback)
+                }
+
+                if (isActive) {
+                    Log.d(TAG, "Streaming session complete")
+                    withContext(Dispatchers.Main) { callback?.onStreamingComplete() }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in streaming session", e)
+                withContext(Dispatchers.Main) { callback?.onStreamingError(e) }
+            }
+        }
+    }
+
+    /**
+     * Feed a chunk of text into the active streaming session.
+     *
+     * Text is buffered internally. When a sentence-ending delimiter is
+     * detected, the complete sentence is queued for synthesis and playback.
+     *
+     * @param chunk A text fragment (may be a single token or multiple words).
+     * @throws IllegalStateException if no streaming session is active.
+     */
+    fun streamText(chunk: String) {
+        val channel = sentenceChannel
+            ?: throw IllegalStateException("No active streaming session. Call beginStreaming() first.")
+
+        textBuffer.append(chunk)
+
+        // Extract complete sentences from the buffer
+        while (true) {
+            val idx = textBuffer.indexOfAny(sentenceDelimiters)
+            if (idx == -1) break
+
+            val sentence = textBuffer.substring(0, idx + 1).trim()
+            textBuffer.delete(0, idx + 1)
+
+            if (sentence.isNotEmpty()) {
+                channel.trySend(sentence)
+            }
+        }
+    }
+
+    /**
+     * Signal that no more text will be fed to this streaming session.
+     *
+     * Any remaining buffered text is flushed and synthesized.
+     * [TtsStreamingCallback.onStreamingComplete] will fire after the
+     * last sentence finishes playing.
+     */
+    fun endStreaming() {
+        val channel = sentenceChannel ?: return
+
+        // Flush remaining buffered text
+        val remaining = textBuffer.toString().trim()
+        textBuffer.clear()
+        if (remaining.isNotEmpty()) {
+            channel.trySend(remaining)
+        }
+
+        channel.close() // signals the consumer loop to finish
+        sentenceChannel = null
+    }
+
+    /**
+     * Synthesize a single sentence and play it through the speaker
+     * using [AudioTrack.MODE_STREAM] and `generateWithCallback`.
+     */
+    private suspend fun synthesizeAndPlay(
+        sentence: String,
+        speed: Float,
+        speakerId: Int,
+        callback: TtsStreamingCallback?
+    ) {
+        val minBuf = AudioTrack.getMinBufferSize(
+            sampleRate,
+            AudioFormat.CHANNEL_OUT_MONO,
+            AudioFormat.ENCODING_PCM_FLOAT
+        )
+
+        val track = AudioTrack.Builder()
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setAudioFormat(
+                AudioFormat.Builder()
+                    .setSampleRate(sampleRate)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                    .build()
+            )
+            .setBufferSizeInBytes(minBuf * 2)
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+
+        audioTrack = track
+        track.play()
+
+        tts!!.generateWithCallback(
+            text = sentence,
+            sid = speakerId,
+            speed = speed
+        ) { samples ->
+            if (speakingJob?.isActive != true) return@generateWithCallback 1
+            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+            0
+        }
+
+        // Small delay to let the last chunk finish playing
+        kotlinx.coroutines.delay(200)
+
+        track.stop()
+        track.release()
+        audioTrack = null
+
+        Log.d(TAG, "Sentence played: '${sentence.take(50)}'")
+        withContext(Dispatchers.Main) { callback?.onSentenceSynthesized(sentence) }
+    }
+
+    // ─── Controls ────────────────────────────────────────────────────
+
+    /**
+     * Stop any active TTS playback (works for all modes).
      */
     fun stopSpeaking() {
         speakingJob?.cancel()
         speakingJob = null
+        sentenceChannel?.close()
+        sentenceChannel = null
+        textBuffer.clear()
         try {
             audioTrack?.stop()
             audioTrack?.release()
