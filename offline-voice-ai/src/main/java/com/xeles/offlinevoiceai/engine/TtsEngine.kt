@@ -8,11 +8,13 @@ import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
+import com.xeles.offlinevoiceai.TtsSpeakingListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Wrapper around the Sherpa-ONNX offline TTS engine.
@@ -74,10 +76,16 @@ internal class TtsEngine {
      * @param text      The text string to synthesize.
      * @param speed     Speech speed multiplier (default 1.0).
      * @param speakerId Speaker ID for multi-speaker models (default 0).
+     * @param listener  Optional callback to receive utterance progress events.
      */
-    fun speak(text: String, speed: Float = 1.0f, speakerId: Int = 0) {
+    fun speak(text: String, speed: Float = 1.0f, speakerId: Int = 0, listener: TtsSpeakingListener? = null) {
         if (tts == null) {
             Log.e(TAG, "TTS engine not initialized. Call initialize() first.")
+            listener?.let {
+                CoroutineScope(Dispatchers.Main).launch {
+                    it.onError(text, IllegalStateException("TTS engine not initialized. Call initialize() first."))
+                }
+            }
             return
         }
 
@@ -127,6 +135,11 @@ internal class TtsEngine {
                 track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
                 track.play()
 
+                // Notify listener that playback has started
+                listener?.let { l ->
+                    withContext(Dispatchers.Main) { l.onStart(text) }
+                }
+
                 // Wait for playback to finish
                 val durationMs = (samples.size.toLong() * 1000L) / sampleRate
                 kotlinx.coroutines.delay(durationMs + 200) // small buffer
@@ -136,8 +149,16 @@ internal class TtsEngine {
                 audioTrack = null
 
                 Log.d(TAG, "TTS playback complete for text: '${text.take(50)}...'")
+
+                // Notify listener that playback is done
+                listener?.let { l ->
+                    withContext(Dispatchers.Main) { l.onDone(text) }
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error during TTS playback", e)
+                listener?.let { l ->
+                    withContext(Dispatchers.Main) { l.onError(text, e) }
+                }
             }
         }
     }

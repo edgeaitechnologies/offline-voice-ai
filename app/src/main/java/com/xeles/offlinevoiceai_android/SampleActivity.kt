@@ -13,6 +13,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.xeles.offlinevoiceai.VoiceAIListener
 import com.xeles.offlinevoiceai.VoiceAIManager
+import com.xeles.offlinevoiceai.TtsSpeakingListener
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -92,8 +93,19 @@ class SampleActivity : AppCompatActivity() {
         btnSpeak.setOnClickListener {
             val text = editSpeak.text.toString().trim()
             if (text.isNotEmpty()) {
-                voiceAI.speak(text)
-                txtStatus.text = "🔊 Speaking…"
+                voiceAI.speak(text, listener = object : TtsSpeakingListener {
+                    override fun onStart(utteranceText: String) {
+                        txtStatus.text = "🔊 Speaking…"
+                    }
+
+                    override fun onDone(utteranceText: String) {
+                        txtStatus.text = "✅ Done speaking"
+                    }
+
+                    override fun onError(utteranceText: String, error: Throwable) {
+                        txtStatus.text = "⚠️ TTS Error: ${error.message}"
+                    }
+                })
             } else {
                 Toast.makeText(this, "Enter text to speak", Toast.LENGTH_SHORT).show()
             }

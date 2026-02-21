@@ -121,10 +121,18 @@ class VoiceAIManager(private val context: Context) {
      * @param text      The text to speak.
      * @param speed     Speech speed multiplier (default `1.0`).
      * @param speakerId Speaker ID for multi-speaker models (default `0`).
+     * @param listener  Optional [TtsSpeakingListener] to receive utterance
+     *                  progress callbacks (`onStart`, `onDone`, `onError`).
+     *                  Callbacks are delivered on the **main thread**.
      */
-    fun speak(text: String, speed: Float = 1.0f, speakerId: Int = 0) {
+    fun speak(
+        text: String,
+        speed: Float = 1.0f,
+        speakerId: Int = 0,
+        listener: TtsSpeakingListener? = null
+    ) {
         requireInitialized()
-        ttsEngine.speak(text, speed, speakerId)
+        ttsEngine.speak(text, speed, speakerId, listener)
     }
 
     /**

@@ -106,8 +106,21 @@ class MainActivity : AppCompatActivity() {
                     }
                 })
 
-                // Speak text
-                voiceAI.speak("Hello from OfflineVoiceAI!")
+                // Speak text with progress callbacks
+                voiceAI.speak(
+                    text = "Hello from OfflineVoiceAI!",
+                    listener = object : TtsSpeakingListener {
+                        override fun onStart(utteranceText: String) {
+                            Log.d("VoiceAI", "Speaking: $utteranceText")
+                        }
+                        override fun onDone(utteranceText: String) {
+                            Log.d("VoiceAI", "Done speaking")
+                        }
+                        override fun onError(utteranceText: String, error: Throwable) {
+                            Log.e("VoiceAI", "TTS error", error)
+                        }
+                    }
+                )
             }
         }
     }
@@ -132,6 +145,20 @@ ActivityCompat.requestPermissions(
 ```
 
 If permission is not granted, `VoiceAIListener.onError()` will receive a `SecurityException`.
+
+## 🔊 TTS Speaking Callbacks
+
+Track the lifecycle of each `speak()` call using `TtsSpeakingListener`:
+
+| Callback | When it fires |
+|----------|---------------|
+| `onStart(utteranceText)` | Audio playback has begun |
+| `onDone(utteranceText)` | Audio playback finished successfully |
+| `onError(utteranceText, error)` | Synthesis or playback failed |
+
+All callbacks are delivered on the **main thread**, so you can update UI directly.
+
+The listener is optional — `speak("Hello")` still works as a fire-and-forget call.
 
 ## 🏗️ Architecture
 
