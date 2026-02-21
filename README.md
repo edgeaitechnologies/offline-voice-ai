@@ -42,7 +42,7 @@ In your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.Xavier984:OfflineVoiceAI-Android:1.0.0")
+    implementation("com.github.edgeaitechnologies:offline-voice-ai:1.0.0")
 }
 ```
 
