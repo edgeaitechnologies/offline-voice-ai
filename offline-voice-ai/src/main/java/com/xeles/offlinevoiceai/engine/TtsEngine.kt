@@ -45,6 +45,13 @@ internal class TtsEngine {
     /** Sentence-ending characters used to split streamed text. */
     private val sentenceDelimiters = charArrayOf('.', '!', '?', '\n')
 
+    private sealed class AudioEvent {
+        class Chunk(val samples: FloatArray) : AudioEvent()
+        class SentenceEnd(val sentence: String) : AudioEvent()
+        class Error(val error: Throwable) : AudioEvent()
+        object StreamEnd : AudioEvent()
+    }
+
     /**
      * Named callback class for [OfflineTts.generateWithCallback].
      *
@@ -55,12 +62,12 @@ internal class TtsEngine {
      * a named class that D8 will not touch.
      */
     private class AudioChunkCallback(
-        private val track: AudioTrack,
+        private val channel: Channel<AudioEvent>,
         private val activeCheck: () -> Boolean
     ) : (FloatArray) -> Int {
         override fun invoke(samples: FloatArray): Int {
             if (!activeCheck()) return 1
-            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+            channel.trySend(AudioEvent.Chunk(samples))
             return 0
         }
     }
@@ -270,25 +277,55 @@ internal class TtsEngine {
 
                 withContext(Dispatchers.Main) { callback?.onStreamingStarted() }
 
-                // Split text into sentences so each one is synthesized and
-                // played independently — this gives low time-to-first-audio.
-                val sentences = splitIntoSentences(text)
-                val chunkCallback = AudioChunkCallback(track) { isActive }
+                val audioChannel = Channel<AudioEvent>(Channel.UNLIMITED)
 
-                for (sentence in sentences) {
-                    if (!isActive) break
+                launch(Dispatchers.IO) {
+                    try {
+                        val sentences = splitIntoSentences(text)
+                        val chunkCallback = AudioChunkCallback(audioChannel) { isActive }
 
-                    tts!!.generateWithCallback(
-                        text = sentence,
-                        sid = speakerId,
-                        speed = speed,
-                        callback = chunkCallback
-                    )
+                        for (sentence in sentences) {
+                            if (!isActive) break
 
-                    withContext(Dispatchers.Main) {
-                        callback?.onSentenceSynthesized(sentence)
+                            tts!!.generateWithCallback(
+                                text = sentence,
+                                sid = speakerId,
+                                speed = speed,
+                                callback = chunkCallback
+                            )
+
+                            audioChannel.trySend(AudioEvent.SentenceEnd(sentence))
+                        }
+                        audioChannel.trySend(AudioEvent.StreamEnd)
+                    } catch (e: Exception) {
+                        audioChannel.trySend(AudioEvent.Error(e))
                     }
                 }
+
+                var playbackError: Throwable? = null
+                for (event in audioChannel) {
+                    if (!isActive) break
+                    when (event) {
+                        is AudioEvent.Chunk -> {
+                            val samples = event.samples
+                            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                        }
+                        is AudioEvent.SentenceEnd -> {
+                            withContext(Dispatchers.Main) {
+                                callback?.onSentenceSynthesized(event.sentence)
+                            }
+                        }
+                        is AudioEvent.Error -> {
+                            playbackError = event.error
+                            break
+                        }
+                        is AudioEvent.StreamEnd -> {
+                            break
+                        }
+                    }
+                }
+
+                if (playbackError != null) throw playbackError
 
                 // Wait for the AudioTrack buffer to drain
                 if (isActive) {
@@ -383,10 +420,87 @@ internal class TtsEngine {
             try {
                 withContext(Dispatchers.Main) { callback?.onStreamingStarted() }
 
-                for (sentence in channel) {
-                    if (!isActive) break
-                    synthesizeAndPlay(sentence, speed, speakerId, callback)
+                val audioChannel = Channel<AudioEvent>(Channel.UNLIMITED)
+
+                val minBuf = AudioTrack.getMinBufferSize(
+                    sampleRate,
+                    AudioFormat.CHANNEL_OUT_MONO,
+                    AudioFormat.ENCODING_PCM_FLOAT
+                )
+
+                val track = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(minBuf * 2)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                audioTrack = track
+                track.play()
+
+                launch(Dispatchers.IO) {
+                    try {
+                        val chunkCallback = AudioChunkCallback(audioChannel) { isActive }
+                        for (sentence in channel) {
+                            if (!isActive) break
+                            tts!!.generateWithCallback(
+                                text = sentence,
+                                sid = speakerId,
+                                speed = speed,
+                                callback = chunkCallback
+                            )
+                            audioChannel.trySend(AudioEvent.SentenceEnd(sentence))
+                        }
+                        audioChannel.trySend(AudioEvent.StreamEnd)
+                    } catch (e: Exception) {
+                        audioChannel.trySend(AudioEvent.Error(e))
+                    }
                 }
+
+                var playbackError: Throwable? = null
+                for (event in audioChannel) {
+                    if (!isActive) break
+                    when (event) {
+                        is AudioEvent.Chunk -> {
+                            val samples = event.samples
+                            track.write(samples, 0, samples.size, AudioTrack.WRITE_BLOCKING)
+                        }
+                        is AudioEvent.SentenceEnd -> {
+                            withContext(Dispatchers.Main) {
+                                callback?.onSentenceSynthesized(event.sentence)
+                            }
+                        }
+                        is AudioEvent.Error -> {
+                            playbackError = event.error
+                            break
+                        }
+                        is AudioEvent.StreamEnd -> {
+                            break
+                        }
+                    }
+                }
+
+                if (playbackError != null) throw playbackError
+
+                // Wait for the AudioTrack buffer to drain
+                if (isActive) {
+                    kotlinx.coroutines.delay(200)
+                }
+
+                track.stop()
+                track.release()
+                audioTrack = null
 
                 if (isActive) {
                     Log.d(TAG, "Streaming session complete")
@@ -449,61 +563,6 @@ internal class TtsEngine {
         sentenceChannel = null
     }
 
-    /**
-     * Synthesize a single sentence and play it through the speaker
-     * using [AudioTrack.MODE_STREAM] and `generateWithCallback`.
-     */
-    private suspend fun synthesizeAndPlay(
-        sentence: String,
-        speed: Float,
-        speakerId: Int,
-        callback: TtsStreamingCallback?
-    ) {
-        val minBuf = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_FLOAT
-        )
-
-        val track = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
-                    .setEncoding(AudioFormat.ENCODING_PCM_FLOAT)
-                    .build()
-            )
-            .setBufferSizeInBytes(minBuf * 2)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-
-        audioTrack = track
-        track.play()
-
-        // Named class callback — see AudioChunkCallback docs above.
-        tts!!.generateWithCallback(
-            text = sentence,
-            sid = speakerId,
-            speed = speed,
-            callback = AudioChunkCallback(track) { speakingJob?.isActive == true }
-        )
-
-        // Small delay to let the last chunk finish playing
-        kotlinx.coroutines.delay(200)
-
-        track.stop()
-        track.release()
-        audioTrack = null
-
-        Log.d(TAG, "Sentence played: '${sentence.take(50)}'")
-        withContext(Dispatchers.Main) { callback?.onSentenceSynthesized(sentence) }
-    }
 
     // ─── Controls ────────────────────────────────────────────────────
 
