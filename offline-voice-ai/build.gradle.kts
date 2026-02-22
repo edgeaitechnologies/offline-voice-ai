@@ -36,7 +36,7 @@ android {
 dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.vosk.android)
-    implementation(libs.sherpa.onnx.android)
+    implementation(project(":sherpa-onnx-android"))
 }
 
 afterEvaluate {

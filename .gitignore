@@ -271,3 +271,6 @@ local.properties
 /offline-voice-ai/build/intermediates/runtime_library_classes_dir/debug/bundleLibRuntimeToDirDebug/com/xeles/offlinevoiceai/engine/TtsEngine$speakStreamed$2$2.class
 /offline-voice-ai/build/tmp/kotlin-classes/debug/com/xeles/offlinevoiceai/engine/TtsEngine$speakStreamed$2$2.class
 /offline-voice-ai/build/.transforms/4abf8ff395047731cfb34467b2c9dc8d/transformed/bundleLibRuntimeToDirDebug/com/xeles/offlinevoiceai/engine/TtsEngine$speakStreamed$2$2.dex
+/sherpa-onnx-android/build/.transforms/650929baeadd81e5c8b7bd77b5665d1e/results.bin
+/errorlog.txt
+/sherpa-onnx-android/build/.transforms/650929baeadd81e5c8b7bd77b5665d1e/transformed/sherpa-onnx-android-1.12.25-runtime/classes.dex

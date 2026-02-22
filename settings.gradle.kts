@@ -17,11 +17,10 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
-        maven { url = uri("local-repo") }
     }
 }
 
 rootProject.name = "OfflineVoiceAI-Android"
 include(":app")
 include(":offline-voice-ai")
- 
+include(":sherpa-onnx-android")
