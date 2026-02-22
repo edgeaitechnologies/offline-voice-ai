@@ -78,9 +78,14 @@ internal class TtsEngine {
     fun initialize(modelDir: String): Boolean {
         return try {
             val vitsConfig = OfflineTtsVitsModelConfig()
-            vitsConfig.model = "$modelDir/en_US-amy-low.onnx"
-            vitsConfig.tokens = "$modelDir/tokens.txt"
-            vitsConfig.dataDir = "$modelDir/espeak-ng-data"
+            val actualModelDir = if (java.io.File("$modelDir/vits-piper-en_US-amy-low-int8").exists()) {
+                "$modelDir/vits-piper-en_US-amy-low-int8"
+            } else {
+                modelDir
+            }
+            vitsConfig.model = "$actualModelDir/en_US-amy-low.onnx"
+            vitsConfig.tokens = "$actualModelDir/tokens.txt"
+            vitsConfig.dataDir = "$actualModelDir/espeak-ng-data"
             vitsConfig.lexicon = ""
 
             val modelConfig = OfflineTtsModelConfig()
