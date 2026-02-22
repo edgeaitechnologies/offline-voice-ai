@@ -274,3 +274,4 @@ local.properties
 /sherpa-onnx-android/build/.transforms/650929baeadd81e5c8b7bd77b5665d1e/results.bin
 /errorlog.txt
 /sherpa-onnx-android/build/.transforms/650929baeadd81e5c8b7bd77b5665d1e/transformed/sherpa-onnx-android-1.12.25-runtime/classes.dex
+release_commands.md

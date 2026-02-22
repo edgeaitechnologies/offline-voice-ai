@@ -21,6 +21,8 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "OfflineVoiceAI-Android"
-include(":app")
+if (System.getenv("JITPACK") != "true") {
+    include(":app")
+}
 include(":offline-voice-ai")
 include(":sherpa-onnx-android")
